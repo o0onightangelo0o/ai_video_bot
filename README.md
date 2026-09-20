@@ -157,7 +157,7 @@ setup.
 
 ---
 
-## 🔁 Alternative: Render + UptimeRobot
+## 🔁 Render (currently deployed) + UptimeRobot
 
 1. New **Web Service** → connect repo → Runtime **Docker** → Free plan.
 2. Same env vars as above, `WEBHOOK_BASE_URL=https://<service>.onrender.com`.

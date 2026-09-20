@@ -133,6 +133,22 @@ def run_webhook() -> None:
     async def health(_: web.Request) -> web.Response:
         return web.json_response({"ok": True, "queue": svc.queue.size})
 
+    async def _keep_alive(app_: web.Application) -> None:
+        """Self-ping /health every 10 min so free hosts (Render) never idle out."""
+        import httpx
+
+        async def loop_() -> None:
+            url = settings.webhook_base_url.rstrip("/") + "/health"
+            async with httpx.AsyncClient(timeout=20) as client:
+                while True:
+                    await asyncio.sleep(600)
+                    try:
+                        await client.get(url)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("keep-alive ping failed: {}", exc)
+
+        app_["keep_alive"] = asyncio.create_task(loop_())
+
     app = web.Application()
     app.router.add_get("/", health)
     app.router.add_get("/health", health)
@@ -141,6 +157,7 @@ def run_webhook() -> None:
     ).register(app, path=settings.webhook_path)
     setup_application(app, dp, bot=bot)  # wires dp.startup/shutdown to aiohttp
     app.on_startup.append(_set_webhook)
+    app.on_startup.append(_keep_alive)
 
     web.run_app(app, host=settings.host, port=settings.port, loop=loop, print=None)
 
