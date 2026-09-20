@@ -467,7 +467,7 @@ def make_callbacks(bot: Bot, db: Database, video: VideoService):
             if data is None:
                 # Could not fetch the file (too large or provider blocked direct
                 # download). Only expose the link if it is actually reachable.
-                if await video.url_ok(url):
+                if not url.startswith("file://") and await video.url_ok(url):
                     await bot.send_message(chat_id, caption + "\n\n" + t("done_link", lang, url=url))
                 else:
                     await db.update_job(job["id"], status="failed", error="video unreachable")

@@ -21,6 +21,7 @@ from typing import Awaitable, Callable, Optional
 
 import httpx
 from loguru import logger
+from pathlib import Path
 
 from .config import settings
 
@@ -289,7 +290,11 @@ class MockProvider(BaseProvider):
             return "failed", None, "unknown job"
         if time.time() - started >= 20:
             self._jobs.pop(job_id, None)
-            # Pick the first sample that is actually reachable right now.
+            # Prefer the bundled offline sample (zero network dependency).
+            local = Path(__file__).resolve().parent / "assets" / "sample.mp4"
+            if local.exists():
+                return "done", local.as_uri(), None
+            # Otherwise pick the first remote sample that is reachable right now.
             for url in _MOCK_SAMPLE_URLS:
                 try:
                     r = await self._client.head(url, timeout=10)
@@ -373,6 +378,8 @@ class VideoService:
 
     async def url_ok(self, url: str) -> bool:
         """Return True if the URL answers with a 2xx/3xx to a HEAD/GET request."""
+        if url.startswith("file://"):
+            return Path(url[7:]).exists()
         try:
             r = await self._client.head(url, timeout=15)
             if r.status_code == 405:
@@ -383,6 +390,11 @@ class VideoService:
 
     async def download(self, url: str, max_bytes: int = 49 * 1024 * 1024) -> bytes | None:
         """Download a video into memory (Telegram bot upload limit is 50 MB)."""
+        if url.startswith("file://"):
+            path = Path(url[7:])
+            if path.exists() and path.stat().st_size <= max_bytes:
+                return await asyncio.to_thread(path.read_bytes)
+            return None
         try:
             async with self._client.stream("GET", url, timeout=120) as r:
                 r.raise_for_status()
