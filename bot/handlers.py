@@ -463,7 +463,15 @@ def make_callbacks(bot: Bot, db: Database, video: VideoService):
             )
             data = await video.download(url)
             if data is None:
-                await bot.send_message(chat_id, caption + "\n\n" + t("done_link", lang, url=url))
+                # Could not fetch the file (too large or provider blocked direct
+                # download). Only expose the link if it is actually reachable.
+                if await video.url_ok(url):
+                    await bot.send_message(chat_id, caption + "\n\n" + t("done_link", lang, url=url))
+                else:
+                    await db.update_job(job["id"], status="failed", error="video unreachable")
+                    await bot.send_message(
+                        chat_id, t("failed", lang, job_id=job["id"], error="video file unreachable")
+                    )
                 return
             file = BufferedInputFile(data, filename=f"video_{job['id']}.mp4")
             try:

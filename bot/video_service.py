@@ -28,8 +28,10 @@ ProgressCallback = Callable[[str], Awaitable[None]]
 
 # A tiny public sample video used by MockProvider so the whole flow can be
 # exercised end-to-end without paying for any API.
-_MOCK_SAMPLE_URL = (
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+_MOCK_SAMPLE_URLS = (
+    "https://download.samplelib.com/mp4/sample-5s.mp4",
+    "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4",
+    "https://filesamples.com/samples/video/mp4/sample_640x360.mp4",
 )
 
 
@@ -286,7 +288,15 @@ class MockProvider(BaseProvider):
             return "failed", None, "unknown job"
         if time.time() - started >= 20:
             self._jobs.pop(job_id, None)
-            return "done", _MOCK_SAMPLE_URL, None
+            # Pick the first sample that is actually reachable right now.
+            for url in _MOCK_SAMPLE_URLS:
+                try:
+                    r = await self._client.head(url, timeout=10)
+                    if r.status_code < 400:
+                        return "done", url, None
+                except httpx.HTTPError:
+                    continue
+            return "failed", None, "mock: no sample video reachable"
         return "pending", None, None
 
 
@@ -357,6 +367,16 @@ class VideoService:
                 logger.exception("Unexpected error in provider {}", provider.name)
                 errors.append(f"{provider.name}: {exc}")
         raise ProviderError(" | ".join(errors) or "all providers failed")
+
+    async def url_ok(self, url: str) -> bool:
+        """Return True if the URL answers with a 2xx/3xx to a HEAD/GET request."""
+        try:
+            r = await self._client.head(url, timeout=15)
+            if r.status_code == 405:
+                r = await self._client.get(url, timeout=15, headers={"Range": "bytes=0-0"})
+            return r.status_code < 400
+        except httpx.HTTPError:
+            return False
 
     async def download(self, url: str, max_bytes: int = 49 * 1024 * 1024) -> bytes | None:
         """Download a video into memory (Telegram bot upload limit is 50 MB)."""
