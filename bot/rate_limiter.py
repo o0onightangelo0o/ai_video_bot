@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
+from .config import settings
 from .database import Database
 
 
@@ -33,7 +34,12 @@ class RateLimiter:
         self._limit = limit
 
     async def check(self, user_id: int) -> RateLimitResult:
-        """Return whether the user may create a new job right now."""
+        """Return whether the user may create a new job right now.
+
+        Administrators are exempt from all limits.
+        """
+        if settings.is_admin(user_id):
+            return RateLimitResult(True, 0, 0, 0)
         now = time.time()
         since = now - self.WINDOW_SECONDS
         used = await self._db.count_user_jobs_since(user_id, since)

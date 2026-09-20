@@ -70,11 +70,13 @@ async def _ensure_user(msg_or_cb: Message | CallbackQuery, svc: Services) -> tup
     return row, row["lang"]
 
 
-def _validate_prompt(text: str, lang: str) -> str | None:
-    """Return an error message key if the prompt is invalid, else None."""
+def _validate_prompt(text: str, lang: str, user_id: int = 0) -> str | None:
+    """Return an error message if the prompt is invalid, else None. Admins skip filters."""
     text = text.strip()
     if len(text) < settings.prompt_min_len:
         return t("prompt_too_short", lang, n=settings.prompt_min_len)
+    if settings.is_admin(user_id):
+        return None
     if len(text) > settings.prompt_max_len:
         return t("prompt_too_long", lang, n=settings.prompt_max_len)
     lowered = text.lower()
@@ -143,7 +145,7 @@ async def cmd_generate(message: Message, svc: Services, state: FSMContext) -> No
         return
 
     active = await svc.db.get_active_job(message.from_user.id)
-    if active:
+    if active and not settings.is_admin(message.from_user.id):
         await message.answer(t("already_active", lang, job_id=active["id"]))
         return
 
@@ -165,7 +167,7 @@ async def step_prompt(message: Message, state: FSMContext) -> None:
     """Receive and validate the prompt."""
     data = await state.get_data()
     lang = data.get("lang", "en")
-    error = _validate_prompt(message.text or "", lang)
+    error = _validate_prompt(message.text or "", lang, message.from_user.id)
     if error:
         await message.answer(error)
         return
@@ -243,7 +245,7 @@ async def cb_confirm(cb: CallbackQuery, state: FSMContext, svc: Services) -> Non
     user_id = cb.from_user.id
 
     # Re-check limits at the last moment (state may be stale).
-    if await svc.db.get_active_job(user_id):
+    if not settings.is_admin(user_id) and await svc.db.get_active_job(user_id):
         await cb.answer(t("already_active", lang, job_id=0), show_alert=True)
         return
     rl = await svc.limiter.check(user_id)
