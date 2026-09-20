@@ -287,15 +287,41 @@ class PixazoProvider(BaseProvider):
             "Content-Type": "application/json",
         }
 
-    async def submit(self, req: VideoRequest) -> str:
-        # num_frames must be 1 + 8k; 24 fps → 5s≈121, 8s≈193, 10s≈241
-        frames = 1 + 8 * round((req.duration * 24 - 1) / 8)
+    # Free tier silently truncates frames when W*H*frames > 100M pixels.
+    _PIXEL_BUDGET = 100_000_000
+    _FPS = 24
+
+    @classmethod
+    def _plan(cls, aspect_ratio: str, duration: int) -> tuple[int, int, int]:
+        """
+        Return (width, height, num_frames) that respects the pixel budget so the
+        requested duration is actually honoured. Duration wins over resolution.
+        """
+        frames = 1 + 8 * round((duration * cls._FPS - 1) / 8)
         frames = max(25, min(frames, 257))
+        ar_w, ar_h = {"16:9": (16, 9), "9:16": (9, 16), "1:1": (1, 1)}.get(aspect_ratio, (16, 9))
+        max_pixels = cls._PIXEL_BUDGET // frames
+        # largest multiple-of-32 dimensions with the right aspect under the budget
+        best = (512, 512)
+        for w in range(1280, 255, -32):
+            h = round(w * ar_h / ar_w / 32) * 32
+            if h < 256:
+                continue
+            if w * h <= max_pixels:
+                best = (w, h)
+                break
+        return best[0], best[1], frames
+
+    async def submit(self, req: VideoRequest) -> str:
+        width, height, frames = self._plan(req.aspect_ratio, req.duration)
+        logger.info("[pixazo] plan: {}x{} x {} frames (~{:.1f}s)",
+                    width, height, frames, frames / self._FPS)
         payload = {
             "prompt": req.full_prompt,
-            "aspect": req.aspect_ratio,
+            "width": width,
+            "height": height,
             "num_frames": frames,
-            "frame_rate": 24,
+            "frame_rate": self._FPS,
         }
         url = f"{self._GATEWAY}/{settings.pixazo_model}/v1/text-to-video"
         try:
