@@ -261,6 +261,75 @@ class FalProvider(BaseProvider):
             pass
 
 
+
+# ---------------------------------------------------------------------------
+# Pixazo (free LTX-Video tier — no credit card)
+# ---------------------------------------------------------------------------
+class PixazoProvider(BaseProvider):
+    """
+    Pixazo gateway, free ``ltx-video`` model (Lightricks LTX).
+
+    Docs: https://www.pixazo.ai/models/ltx  → "LTX 2.5 Free"
+    Submit returns ``request_id``; poll ``/v2/requests/status/{id}`` until
+    ``COMPLETED`` and read ``output.media_url[0]``.
+    """
+
+    name = "pixazo"
+    _GATEWAY = "https://gateway.pixazo.ai"
+
+    def is_configured(self) -> bool:
+        return bool(settings.pixazo_api_key)
+
+    @property
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Ocp-Apim-Subscription-Key": settings.pixazo_api_key,
+            "Content-Type": "application/json",
+        }
+
+    async def submit(self, req: VideoRequest) -> str:
+        # num_frames must be 1 + 8k; 24 fps → 5s≈121, 8s≈193, 10s≈241
+        frames = 1 + 8 * round((req.duration * 24 - 1) / 8)
+        frames = max(25, min(frames, 257))
+        payload = {
+            "prompt": req.full_prompt,
+            "aspect": req.aspect_ratio,
+            "num_frames": frames,
+            "frame_rate": 24,
+        }
+        url = f"{self._GATEWAY}/{settings.pixazo_model}/v1/text-to-video"
+        try:
+            r = await self._client.post(url, json=payload, headers=self._headers, timeout=60)
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"pixazo network error: {exc}") from exc
+        if r.status_code >= 400:
+            raise ProviderError(f"pixazo HTTP {r.status_code}: {r.text[:200]}")
+        data = r.json()
+        rid = data.get("request_id")
+        if not rid:
+            raise ProviderError(f"pixazo: no request_id in response {str(data)[:200]}")
+        return rid
+
+    async def poll(self, job_id: str) -> tuple[str, Optional[str], Optional[str]]:
+        try:
+            r = await self._client.get(
+                f"{self._GATEWAY}/v2/requests/status/{job_id}", headers=self._headers, timeout=30
+            )
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"pixazo network error: {exc}") from exc
+        if r.status_code >= 400:
+            raise ProviderError(f"pixazo HTTP {r.status_code}: {r.text[:200]}")
+        data = r.json()
+        status = (data.get("status") or "").upper()
+        if status == "COMPLETED":
+            out = data.get("output") or {}
+            media = out.get("media_url")
+            url = media[0] if isinstance(media, list) and media else media
+            return ("done", url, None) if url else ("failed", None, "no media_url")
+        if status in ("FAILED", "ERROR"):
+            return "failed", None, str(data.get("error") or status)
+        return "pending", None, None
+
 # ---------------------------------------------------------------------------
 # Mock (free)
 # ---------------------------------------------------------------------------
@@ -314,6 +383,7 @@ class MockProvider(BaseProvider):
 _REGISTRY: dict[str, type[BaseProvider]] = {
     ReplicateProvider.name: ReplicateProvider,
     FalProvider.name: FalProvider,
+    PixazoProvider.name: PixazoProvider,
     MockProvider.name: MockProvider,
 }
 

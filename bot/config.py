@@ -64,6 +64,8 @@ class Settings:
     replicate_model: str = field(
         default_factory=lambda: _env("REPLICATE_MODEL", "wan-video/wan-2.1-1.3b")
     )
+    pixazo_api_key: str = field(default_factory=lambda: _env("PIXAZO_API_KEY", ""))
+    pixazo_model: str = field(default_factory=lambda: _env("PIXAZO_MODEL", "ltx-video"))
     fal_api_key: str = field(default_factory=lambda: _env("FAL_API_KEY", ""))
     fal_model: str = field(
         default_factory=lambda: _env("FAL_MODEL", "fal-ai/ltx-video")

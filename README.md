@@ -14,7 +14,7 @@ bilingual (AR/EN) UI. Runs in **polling** mode locally and **webhook** mode in p
 | Feature | Details |
 |---|---|
 | Wizard | `/generate` → prompt → aspect (16:9 / 9:16 / 1:1) → duration (5/8/10s) → style → confirm |
-| Providers | `replicate`, `fal`, `mock` — priority list in `PROVIDER_ORDER`, automatic fallback |
+| Providers | `pixazo` (free LTX), `replicate`, `fal`, `mock` — priority list in `PROVIDER_ORDER`, automatic fallback |
 | Async polling | Non‑blocking job polling with timeout & cancellation |
 | Queue | `asyncio.Queue` + N workers, persisted in SQLite (recovers after restart) |
 | Rate limit | Sliding window, `MAX_REQUESTS_PER_HOUR` per user (failed/cancelled jobs don't count) |
@@ -81,6 +81,7 @@ docker compose logs -f bot
 |---|---|
 | `BOT_TOKEN` | [@BotFather](https://t.me/BotFather) → `/newbot` |
 | `ADMIN_ID` | [@userinfobot](https://t.me/userinfobot) → your numeric id |
+| `PIXAZO_API_KEY` | https://api-console.pixazo.ai/api_keys — **free LTX video, no card** |
 | `REPLICATE_API_KEY` | https://replicate.com/account/api-tokens (trial credit on signup) |
 | `FAL_API_KEY` | https://fal.ai/dashboard/keys |
 
