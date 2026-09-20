@@ -210,6 +210,68 @@ class Database:
             row = await cur.fetchone()
             return float(row[0]) if row and row[0] is not None else None
 
+    # ------------------------------------------------------------ admin lists
+    async def list_users(self, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
+        """Users with their video counts, most recently active first."""
+        async with self.conn.execute(
+            """
+            SELECT u.user_id, u.username, u.first_name, u.lang, u.created_at, u.last_seen,
+                   COUNT(j.id) AS jobs_total,
+                   SUM(CASE WHEN j.status='done' THEN 1 ELSE 0 END) AS jobs_done
+            FROM users u LEFT JOIN jobs j ON j.user_id = u.user_id
+            GROUP BY u.user_id ORDER BY u.last_seen DESC LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def list_prompts(
+        self, limit: int = 20, offset: int = 0, user_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Recent prompts (all users, or one user) with status and author."""
+        where = "WHERE j.user_id = ?" if user_id else ""
+        params: tuple = (user_id, limit, offset) if user_id else (limit, offset)
+        async with self.conn.execute(
+            f"""
+            SELECT j.id, j.user_id, j.prompt, j.aspect_ratio, j.duration, j.style,
+                   j.status, j.provider, j.created_at, u.username, u.first_name
+            FROM jobs j LEFT JOIN users u ON u.user_id = j.user_id
+            {where} ORDER BY j.created_at DESC LIMIT ? OFFSET ?
+            """,
+            params,
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def count_prompts(self, user_id: int | None = None) -> int:
+        sql = "SELECT COUNT(*) FROM jobs" + (" WHERE user_id = ?" if user_id else "")
+        async with self.conn.execute(sql, (user_id,) if user_id else ()) as cur:
+            return int((await cur.fetchone())[0])
+
+    async def export_prompts_csv(self) -> str:
+        """Return every job as CSV text (for /export)."""
+        import csv
+        import io
+        from datetime import datetime, timezone
+
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["job_id", "user_id", "username", "date_utc", "status", "provider",
+                    "aspect", "duration", "style", "prompt"])
+        async with self.conn.execute(
+            """
+            SELECT j.*, u.username FROM jobs j LEFT JOIN users u ON u.user_id = j.user_id
+            ORDER BY j.id
+            """
+        ) as cur:
+            async for r in cur:
+                w.writerow([
+                    r["id"], r["user_id"], r["username"] or "",
+                    datetime.fromtimestamp(r["created_at"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M"),
+                    r["status"], r["provider"] or "", r["aspect_ratio"], r["duration"],
+                    r["style"], r["prompt"],
+                ])
+        return buf.getvalue()
+
     # ------------------------------------------------------------------ stats
     async def stats(self) -> dict[str, Any]:
         """Aggregate statistics for the admin /stats command."""
@@ -219,6 +281,7 @@ class Database:
             "users_24h": "SELECT COUNT(*) FROM users WHERE last_seen >= ?",
             "jobs_total": "SELECT COUNT(*) FROM jobs",
             "jobs_24h": "SELECT COUNT(*) FROM jobs WHERE created_at >= ?",
+            "users_new_24h": "SELECT COUNT(*) FROM users WHERE created_at >= ?",
             "jobs_done": "SELECT COUNT(*) FROM jobs WHERE status = 'done'",
             "jobs_failed": "SELECT COUNT(*) FROM jobs WHERE status = 'failed'",
             "jobs_active": "SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')",
@@ -234,4 +297,12 @@ class Database:
             "SELECT provider, COUNT(*) c FROM jobs WHERE status='done' GROUP BY provider"
         ) as cur:
             out["by_provider"] = {r["provider"] or "?": r["c"] for r in await cur.fetchall()}
+        async with self.conn.execute(
+            """
+            SELECT u.user_id, u.username, u.first_name, COUNT(j.id) c
+            FROM jobs j JOIN users u ON u.user_id = j.user_id
+            WHERE j.status='done' GROUP BY u.user_id ORDER BY c DESC LIMIT 5
+            """
+        ) as cur:
+            out["top_users"] = [dict(r) for r in await cur.fetchall()]
         return out

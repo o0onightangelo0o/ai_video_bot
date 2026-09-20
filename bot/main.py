@@ -18,7 +18,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, BotCommandScopeChat
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 from loguru import logger
@@ -63,6 +63,19 @@ async def set_commands(bot: Bot) -> None:
     ]
     await bot.set_my_commands(en)
     await bot.set_my_commands(ar, language_code="ar")
+    admin_cmds = en + [
+        BotCommand(command="stats", description="📈 Statistics"),
+        BotCommand(command="users", description="👥 Users list"),
+        BotCommand(command="prompts", description="📝 Prompts list"),
+        BotCommand(command="export", description="📥 Export CSV"),
+        BotCommand(command="ban", description="Ban user"),
+        BotCommand(command="unban", description="Unban user"),
+    ]
+    for admin_id in settings.admin_ids:
+        try:
+            await bot.set_my_commands(admin_cmds, scope=BotCommandScopeChat(chat_id=admin_id))
+        except Exception as exc:  # noqa: BLE001 - admin may not have started the bot yet
+            logger.warning("Could not set admin commands for {}: {}", admin_id, exc)
 
 
 async def build() -> tuple[Bot, Dispatcher, Services]:

@@ -83,3 +83,28 @@ def language_keyboard() -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def admin_pager(kind: str, page: int, has_next: bool, extra: str = "") -> InlineKeyboardMarkup:
+    """◀️ / ▶️ pager for admin lists. callback: adm:<kind>:<page>[:extra]"""
+    suffix = f":{extra}" if extra else ""
+    row: list[InlineKeyboardButton] = []
+    if page > 0:
+        row.append(InlineKeyboardButton(text="◀️", callback_data=f"adm:{kind}:{page - 1}{suffix}"))
+    row.append(InlineKeyboardButton(text=f"· {page + 1} ·", callback_data="adm:noop"))
+    if has_next:
+        row.append(InlineKeyboardButton(text="▶️", callback_data=f"adm:{kind}:{page + 1}{suffix}"))
+    return InlineKeyboardMarkup(inline_keyboard=[row])
+
+
+def admin_menu() -> InlineKeyboardMarkup:
+    """Shortcut buttons under /stats."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="👥 Users", callback_data="adm:users:0"),
+                InlineKeyboardButton(text="📝 Prompts", callback_data="adm:prompts:0"),
+            ],
+            [InlineKeyboardButton(text="📥 Export CSV", callback_data="adm:export")],
+        ]
+    )
