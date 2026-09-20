@@ -119,6 +119,7 @@ class BaseProvider(ABC):
                 raise ProviderError(f"{self.name}: job timed out after {settings.job_timeout}s")
 
             status, url, err = await self.poll(job_id)
+            logger.debug("[{}] job {} status={}", self.name, job_id, status)
             if status == "done" and url:
                 return VideoResult(url, self.name, job_id, time.time() - start)
             if status == "failed":
@@ -292,9 +293,11 @@ class MockProvider(BaseProvider):
             for url in _MOCK_SAMPLE_URLS:
                 try:
                     r = await self._client.head(url, timeout=10)
+                    logger.info("mock: sample {} -> HTTP {}", url, r.status_code)
                     if r.status_code < 400:
                         return "done", url, None
-                except httpx.HTTPError:
+                except httpx.HTTPError as exc:
+                    logger.warning("mock: sample {} unreachable: {}", url, exc)
                     continue
             return "failed", None, "mock: no sample video reachable"
         return "pending", None, None
@@ -391,6 +394,6 @@ class VideoService:
                         return None
                     chunks.append(chunk)
                 return b"".join(chunks)
-        except httpx.HTTPError as exc:
-            logger.warning("Download failed for {}: {}", url, exc)
+        except (httpx.HTTPError, Exception) as exc:  # noqa: BLE001
+            logger.warning("Download failed for {}: {!r}", url, exc)
             return None

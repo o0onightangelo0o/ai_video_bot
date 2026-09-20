@@ -444,6 +444,7 @@ def make_callbacks(bot: Bot, db: Database, video: VideoService):
     async def deliver(job: dict, url: str | None, error: str | None) -> None:
         lang = await _lang(job["user_id"])
         chat_id = job["chat_id"]
+        logger.info("deliver job {}: url={} error={}", job["id"], url, error)
         try:
             if error or not url:
                 await bot.send_message(
@@ -462,6 +463,7 @@ def make_callbacks(bot: Bot, db: Database, video: VideoService):
                 provider=fresh.get("provider") or "",
             )
             data = await video.download(url)
+            logger.info("job {}: downloaded {} bytes", job["id"], len(data) if data else None)
             if data is None:
                 # Could not fetch the file (too large or provider blocked direct
                 # download). Only expose the link if it is actually reachable.
@@ -476,8 +478,9 @@ def make_callbacks(bot: Bot, db: Database, video: VideoService):
             file = BufferedInputFile(data, filename=f"video_{job['id']}.mp4")
             try:
                 await bot.send_video(chat_id, file, caption=caption, supports_streaming=True)
-            except Exception:  # noqa: BLE001 - fall back to document
-                logger.warning("send_video failed for job {}, sending as document", job["id"])
+                logger.info("job {}: video sent", job["id"])
+            except Exception as exc:  # noqa: BLE001 - fall back to document
+                logger.warning("send_video failed for job {} ({}), sending as document", job["id"], exc)
                 file = BufferedInputFile(data, filename=f"video_{job['id']}.mp4")
                 await bot.send_document(chat_id, file, caption=caption)
         except Exception:  # noqa: BLE001
