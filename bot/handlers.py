@@ -275,7 +275,7 @@ async def cb_confirm(cb: CallbackQuery, state: FSMContext, svc: Services) -> Non
 
     logger.info("User {} queued job {} (pos {})", user_id, job_id, pos)
     await cb.message.edit_text(
-        t("queued", lang, job_id=job_id, pos=pos),
+        t("queued", lang, job_id=job_id, pos=pos, eta=svc.queue.eta_minutes(pos)),
         reply_markup=kb.cancel_job_keyboard(lang, job_id),
     )
     await cb.answer()
@@ -303,7 +303,9 @@ async def cmd_status(message: Message, svc: Services) -> None:
           prompt=html.escape(job["prompt"]),
           provider=job["provider"] or "—",
           elapsed=elapsed,
-          queue=svc.queue.size),
+          ahead=svc.queue.size if job["status"] == "queued" else 0,
+          eta=(svc.queue.eta_minutes(svc.queue.size) if job["status"] == "queued"
+               else max(1, round((settings.avg_render_seconds - elapsed) / 60)))),
         reply_markup=kb.cancel_job_keyboard(lang, job["id"]),
     )
 
@@ -435,7 +437,9 @@ def make_callbacks(bot: Bot, db: Database, video: VideoService):
         lang = await _lang(job["user_id"])
         try:
             if event == "started":
-                await bot.send_message(job["chat_id"], t("started", lang, job_id=job["id"]),
+                await bot.send_message(job["chat_id"],
+                                       t("started", lang, job_id=job["id"],
+                                         eta=max(1, round(settings.avg_render_seconds / 60))),
                                        reply_markup=kb.cancel_job_keyboard(lang, job["id"]))
             elif event.startswith("fallback:"):
                 await bot.send_message(job["chat_id"],

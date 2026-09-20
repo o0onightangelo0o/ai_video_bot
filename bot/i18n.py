@@ -89,12 +89,22 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
     },
     "queued": {
-        "en": "✅ Job <b>#{job_id}</b> queued (position {pos}). I'll notify you when it's ready.",
-        "ar": "✅ تمت إضافة الطلب <b>#{job_id}</b> إلى الطابور (الترتيب {pos}). سأخبرك عند الجاهزية.",
+        "en": (
+            "✅ Job <b>#{job_id}</b> queued.\n"
+            "📍 Position in queue: <b>{pos}</b>\n"
+            "⏳ Estimated wait: <b>~{eta} min</b>\n\n"
+            "I'll send the video here as soon as it's ready."
+        ),
+        "ar": (
+            "✅ تمت إضافة الطلب <b>#{job_id}</b> إلى الطابور.\n"
+            "📍 ترتيبك في الطابور: <b>{pos}</b>\n"
+            "⏳ الانتظار المتوقع: <b>~{eta} دقيقة</b>\n\n"
+            "سأرسل الفيديو هنا فور جاهزيته."
+        ),
     },
     "started": {
-        "en": "🎬 Job <b>#{job_id}</b> is now rendering… this may take a few minutes.",
-        "ar": "🎬 بدأ توليد الطلب <b>#{job_id}</b>… قد يستغرق بضع دقائق.",
+        "en": "🎬 Job <b>#{job_id}</b> is now rendering… usually takes <b>~{eta} min</b>.",
+        "ar": "🎬 بدأ توليد الطلب <b>#{job_id}</b>… يستغرق عادةً <b>~{eta} دقيقة</b>.",
     },
     "fallback": {
         "en": "🔁 Primary provider failed, retrying with <b>{provider}</b>…",
@@ -123,7 +133,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "Prompt: <i>{prompt}</i>\n"
             "Provider: {provider}\n"
             "Elapsed: {elapsed}s\n"
-            "Queue size: {queue}"
+            "Ahead of you: {ahead}\n"
+            "Estimated remaining: ~{eta} min"
         ),
         "ar": (
             "📊 <b>الطلب #{job_id}</b>\n"
@@ -131,7 +142,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "الوصف: <i>{prompt}</i>\n"
             "المزوّد: {provider}\n"
             "الوقت المنقضي: {elapsed} ث\n"
-            "حجم الطابور: {queue}"
+            "أمامك في الطابور: {ahead}\n"
+            "المتبقي تقريباً: ~{eta} دقيقة"
         ),
     },
     "cancelled": {

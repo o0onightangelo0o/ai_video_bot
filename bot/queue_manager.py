@@ -44,6 +44,8 @@ class QueueManager:
         self._queue: asyncio.Queue[int] = asyncio.Queue(maxsize=settings.max_queue_size)
         self._workers: list[asyncio.Task] = []
         self._cancel_flags: set[int] = set()
+        self._running = 0
+        self._backoff_until = 0.0
 
     # ------------------------------------------------------------ lifecycle
     async def start(self) -> None:
@@ -67,6 +69,20 @@ class QueueManager:
     def size(self) -> int:
         return self._queue.qsize()
 
+    @property
+    def running(self) -> int:
+        """Number of jobs currently being rendered."""
+        return self._running
+
+    def eta_minutes(self, position: int) -> int:
+        """
+        Rough wait estimate for a job at `position` (1-based) in the queue,
+        given the worker count and the provider's average render time.
+        """
+        workers = max(1, settings.queue_workers)
+        waves = (position + self._running + workers - 1) // workers
+        return max(1, round(waves * settings.avg_render_seconds / 60))
+
     async def enqueue(self, job_id: int) -> int:
         """Add a persisted job to the queue. Returns the position (1-based)."""
         if self._queue.full():
@@ -88,6 +104,12 @@ class QueueManager:
         logger.info("Worker {} started", idx)
         while True:
             job_id = await self._queue.get()
+            # Global cool-down after a provider 429 (rate limit).
+            delay = self._backoff_until - time.time()
+            if delay > 0:
+                logger.info("Worker {} cooling down {:.0f}s (provider rate limit)", idx, delay)
+                await asyncio.sleep(delay)
+            self._running += 1
             try:
                 await self._process(job_id)
             except asyncio.CancelledError:
@@ -95,6 +117,7 @@ class QueueManager:
             except Exception:  # noqa: BLE001
                 logger.exception("Worker {} crashed on job {}", idx, job_id)
             finally:
+                self._running -= 1
                 self._queue.task_done()
 
     async def _process(self, job_id: int) -> None:
@@ -134,6 +157,10 @@ class QueueManager:
             logger.info("Job {} cancelled", job_id)
             return
         except ProviderError as exc:
+            if "429" in str(exc):
+                # Provider is throttling us: pause all workers for a while.
+                self._backoff_until = time.time() + 120
+                logger.warning("Provider rate-limited; pausing workers for 120s")
             await self._db.update_job(
                 job_id, status="failed", error=str(exc)[:500], finished_at=time.time()
             )

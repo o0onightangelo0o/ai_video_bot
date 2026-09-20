@@ -74,7 +74,9 @@ class Settings:
     video_api_key: str = field(default_factory=lambda: _env("VIDEO_API_KEY", ""))
 
     job_poll_interval: int = field(default_factory=lambda: _env_int("JOB_POLL_INTERVAL", 5))
-    job_timeout: int = field(default_factory=lambda: _env_int("JOB_TIMEOUT", 900))
+    job_timeout: int = field(default_factory=lambda: _env_int("JOB_TIMEOUT", 1800))
+    # Used only for ETA shown to users (seconds per video on the current provider)
+    avg_render_seconds: int = field(default_factory=lambda: _env_int("AVG_RENDER_SECONDS", 540))
 
     # --- Limits / protection -------------------------------------------------
     max_requests_per_hour: int = field(
