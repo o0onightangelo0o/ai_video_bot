@@ -127,6 +127,15 @@ class Database:
         )
         await self.conn.commit()
 
+    async def list_banned(self) -> list[dict[str, Any]]:
+        async with self.conn.execute(
+            """
+            SELECT b.user_id, b.reason, b.added_at, u.username, u.first_name
+            FROM blacklist b LEFT JOIN users u ON u.user_id = b.user_id ORDER BY b.added_at DESC
+            """
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
     async def unban(self, user_id: int) -> None:
         await self.conn.execute("DELETE FROM blacklist WHERE user_id = ?", (user_id,))
         await self.conn.commit()

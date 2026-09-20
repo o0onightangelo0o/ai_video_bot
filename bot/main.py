@@ -68,8 +68,9 @@ async def set_commands(bot: Bot) -> None:
         BotCommand(command="users", description="👥 Users list"),
         BotCommand(command="prompts", description="📝 Prompts list"),
         BotCommand(command="export", description="📥 Export CSV"),
-        BotCommand(command="ban", description="Ban user"),
-        BotCommand(command="unban", description="Unban user"),
+        BotCommand(command="ban", description="🚫 Ban user  (/ban <id> [reason])"),
+        BotCommand(command="unban", description="✅ Unban user"),
+        BotCommand(command="banned", description="📋 Banned list"),
     ]
     for admin_id in settings.admin_ids:
         try:

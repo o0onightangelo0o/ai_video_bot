@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from aiogram import Bot, F, Router
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import BaseFilter, Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
@@ -28,6 +28,19 @@ from .rate_limiter import RateLimiter
 from .video_service import VideoService
 
 router = Router(name="main")
+
+
+class IsAdmin(BaseFilter):
+    """Allow only Telegram ids listed in ADMIN_ID (single source of truth)."""
+
+    async def __call__(self, event: Message | CallbackQuery) -> bool:
+        user = event.from_user
+        ok = bool(user) and settings.is_admin(user.id)
+        if not ok and user:
+            logger.warning("Unauthorised admin attempt by {} (@{}): {}",
+                           user.id, user.username,
+                           getattr(event, "text", None) or getattr(event, "data", None))
+        return ok
 
 
 class GenerateFlow(StatesGroup):
@@ -430,18 +443,13 @@ async def _prompts_page(svc: Services, page: int, user_id: int | None) -> tuple[
     return "\n".join(lines), has_next
 
 
-@router.message(Command("stats"))
+@router.message(Command("stats"), IsAdmin())
 async def cmd_stats(message: Message, svc: Services) -> None:
     """Usage statistics (admin only)."""
-    row = await svc.db.get_user(message.from_user.id)
-    lang = row["lang"] if row else "en"
-    if not settings.is_admin(message.from_user.id):
-        await message.answer(t("admin_only", lang))
-        return
     await message.answer(await _stats_text(svc), reply_markup=kb.admin_menu())
 
 
-@router.message(Command("users"))
+@router.message(Command("users"), IsAdmin())
 async def cmd_users(message: Message, svc: Services) -> None:
     """List users with video counts (admin only)."""
     if not settings.is_admin(message.from_user.id):
@@ -450,7 +458,7 @@ async def cmd_users(message: Message, svc: Services) -> None:
     await message.answer(text, reply_markup=kb.admin_pager("users", 0, has_next))
 
 
-@router.message(Command("prompts"))
+@router.message(Command("prompts"), IsAdmin())
 async def cmd_prompts(message: Message, svc: Services) -> None:
     """List recent prompts, optionally for one user: /prompts [user_id] (admin only)."""
     if not settings.is_admin(message.from_user.id):
@@ -461,7 +469,7 @@ async def cmd_prompts(message: Message, svc: Services) -> None:
     await message.answer(text, reply_markup=kb.admin_pager("prompts", 0, has_next, str(uid or "")))
 
 
-@router.message(Command("export"))
+@router.message(Command("export"), IsAdmin())
 async def cmd_export(message: Message, svc: Services) -> None:
     """Send all prompts as a CSV file (admin only)."""
     if not settings.is_admin(message.from_user.id):
@@ -476,7 +484,7 @@ async def _send_export(chat_id: int, svc: Services, bot: Bot) -> None:
     await bot.send_document(chat_id, file, caption="📥 All prompts (CSV, UTF-8)")
 
 
-@router.callback_query(F.data.startswith("adm:"))
+@router.callback_query(F.data.startswith("adm:"), IsAdmin())
 async def cb_admin(cb: CallbackQuery, svc: Services) -> None:
     """Pagination / shortcuts for admin lists."""
     if not settings.is_admin(cb.from_user.id):
@@ -505,7 +513,7 @@ async def cb_admin(cb: CallbackQuery, svc: Services) -> None:
     await cb.answer()
 
 
-@router.message(Command("ban"))
+@router.message(Command("ban"), IsAdmin())
 async def cmd_ban(message: Message, svc: Services) -> None:
     """/ban <user_id> [reason] — admin only."""
     if not settings.is_admin(message.from_user.id):
@@ -515,11 +523,30 @@ async def cmd_ban(message: Message, svc: Services) -> None:
         await message.answer("Usage: /ban <user_id> [reason]")
         return
     reason = parts[2] if len(parts) > 2 else ""
-    await svc.db.ban(int(parts[1]), reason)
-    await message.answer(f"🚫 User {parts[1]} banned.")
+    target = int(parts[1])
+    if settings.is_admin(target):
+        await message.answer("⛔ Cannot ban an administrator.")
+        return
+    await svc.db.ban(target, reason)
+    logger.info("ADMIN {} banned {} ({})", message.from_user.id, target, reason)
+    await message.answer(f"🚫 User <code>{target}</code> banned." + (f"\nReason: {html.escape(reason)}" if reason else ""))
 
 
-@router.message(Command("unban"))
+@router.message(Command("banned"), IsAdmin())
+async def cmd_banned(message: Message, svc: Services) -> None:
+    """List banned users (admin only)."""
+    rows = await svc.db.list_banned()
+    if not rows:
+        await message.answer("✅ Blacklist is empty.")
+        return
+    lines = ["🚫 <b>Banned users</b>\n"]
+    for r in rows:
+        who = f"@{r['username']}" if r.get("username") else (r.get("first_name") or "?")
+        lines.append(f"• {html.escape(who)} (<code>{r['user_id']}</code>) — {html.escape(r['reason'] or '—')}")
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("unban"), IsAdmin())
 async def cmd_unban(message: Message, svc: Services) -> None:
     """/unban <user_id> — admin only."""
     if not settings.is_admin(message.from_user.id):
@@ -529,7 +556,16 @@ async def cmd_unban(message: Message, svc: Services) -> None:
         await message.answer("Usage: /unban <user_id>")
         return
     await svc.db.unban(int(parts[1]))
-    await message.answer(f"✅ User {parts[1]} unbanned.")
+    logger.info("ADMIN {} unbanned {}", message.from_user.id, parts[1])
+    await message.answer(f"✅ User <code>{parts[1]}</code> unbanned.")
+
+
+@router.message(Command("stats", "users", "prompts", "export", "ban", "unban", "banned"))
+async def cmd_admin_denied(message: Message, svc: Services) -> None:
+    """Anyone who is not the admin gets a polite refusal."""
+    row = await svc.db.get_user(message.from_user.id)
+    lang = row["lang"] if row else normalize_lang(message.from_user.language_code, settings.default_lang)
+    await message.answer(t("admin_only", lang))
 
 
 # ---------------------------------------------------------------------------
